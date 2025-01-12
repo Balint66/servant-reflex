@@ -7,6 +7,7 @@
 {-# LANGUAGE ViewPatterns        #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators       #-}
 module Servant.Common.BaseUrl (
   -- * types
     BaseUrl (..)
@@ -20,9 +21,7 @@ module Servant.Common.BaseUrl (
 ) where
 
 import           Control.Monad (join)
--- import           Control.Monad.IO.Class (MonadIO)
 import           Control.Monad.Fix (MonadFix)
-import           Data.Monoid ((<>))
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           GHC.Generics

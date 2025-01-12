@@ -11,7 +11,7 @@
 module Servant.Common.Req where
 
 -------------------------------------------------------------------------------
-import           Control.Applicative        (liftA2, liftA3)
+import           Control.Applicative        (liftA3)
 import           Control.Arrow              ((&&&))
 import           Control.Concurrent
 import           Control.Monad              (join)
@@ -23,7 +23,6 @@ import           Data.ByteString            (ByteString)
 import qualified Data.Map                   as Map
 import           Data.Maybe                 (catMaybes, fromMaybe)
 import           Data.Functor.Compose
-import           Data.Monoid                ((<>))
 import           Data.Proxy                 (Proxy(..))
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T

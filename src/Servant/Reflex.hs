@@ -38,17 +38,15 @@ module Servant.Reflex
   ) where
 
 ------------------------------------------------------------------------------
-import           Control.Applicative
 import qualified Data.CaseInsensitive    as CI
 import           Data.Functor.Identity
+import Data.Kind
 import qualified Data.Map                as Map
-import           Data.Monoid             ((<>))
 import           Data.Proxy              (Proxy (..))
 import qualified Data.Set                as Set
 import           Data.Text               (Text)
 import qualified Data.Text               as T
 import qualified Data.Text.Encoding      as E
-import           GHC.Exts                (Constraint)
 import           GHC.TypeLits            (KnownSymbol, symbolVal)
 import           Servant.API             ((:<|>) (..), (:>), BasicAuth,
                                           BasicAuthData, BuildHeadersTo (..),
@@ -61,7 +59,6 @@ import           Servant.API             ((:<|>) (..), (:>), BasicAuth,
                                           ToHttpApiData (..), Vault, Verb,
                                           contentType)
 import           Servant.API.Description (Summary)
-import qualified Servant.Auth            as Auth
 
 import           Reflex.Dom.Core         (Dynamic, Event, Reflex,
                                           XhrRequest (..), XhrResponse (..),
@@ -143,8 +140,8 @@ clientWithOptsAndResultHandler p q t = clientWithRouteAndResultHandler p q t def
 -- | This class lets us define how each API combinator
 -- influences the creation of an HTTP request. It's mostly
 -- an internal class, you can just use 'client'.
-class Monad m => HasClient t m layout (tag :: *) where
-  type Client t m layout tag :: *
+class Monad m => HasClient t m layout (tag :: Type) where
+  type Client t m layout tag :: Type
   clientWithRoute
     :: Proxy layout
     -> Proxy m
@@ -598,6 +595,7 @@ for empty and one for non-empty lists).
 -}
 
 
+{-
 -- SUPPORT FOR servant-auth --
 
 -- For JavaScript clients we should be sending/storing JSON web tokens in a
@@ -622,4 +620,4 @@ type family HasCookieAuth xs :: Constraint where
   HasCookieAuth '[]         = CookieAuthNotEnabled
 
 class CookieAuthNotEnabled
-
+-}
