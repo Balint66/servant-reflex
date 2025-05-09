@@ -414,9 +414,9 @@ instance (KnownSymbol sym, ToHttpApiData a, HasClient t m sublayout tag, Reflex 
 -- > -- 'getBooksBy ["Isaac Asimov", "Robert A. Heinlein"]'
 -- > --   to get all books by Asimov and Heinlein
 instance (KnownSymbol sym, ToHttpApiData a, HasClient t m sublayout tag, Reflex t)
-      => HasClient t m (QueryParams sym a :> sublayout) tag where
+      => HasClient t m (QueryParams' mod sym a :> sublayout) tag where
 
-  type Client t m (QueryParams sym a :> sublayout) tag =
+  type Client t m (QueryParams' mod sym a :> sublayout) tag =
     Dynamic t [a] -> Client t m sublayout tag
 
   clientWithRouteAndResultHandler Proxy q t req baseurl opts wrap paramlist =
