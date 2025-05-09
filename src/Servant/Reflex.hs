@@ -53,7 +53,7 @@ import           Servant.API             ((:<|>) (..), (:>), BasicAuth,
                                           Capture, Header, Headers (..),
                                           HttpVersion, IsSecure,
                                           MimeRender (..), MimeUnrender,
-                                          NoContent, QueryFlag, QueryParam,
+                                          NoContent, QueryFlag, QueryParam',
                                           QueryParams, Raw, ReflectMethod (..),
                                           RemoteHost, ReqBody,
                                           ToHttpApiData (..), Vault, Verb,
@@ -367,9 +367,9 @@ instance (HasClient t m sublayout tag, KnownSymbol sym)
 -- > -- 'getBooksBy Nothing' for all books
 -- > -- 'getBooksBy (Just "Isaac Asimov")' to get all books by Isaac Asimov
 instance (KnownSymbol sym, ToHttpApiData a, HasClient t m sublayout tag, Reflex t)
-      => HasClient t m (QueryParam sym a :> sublayout) tag where
+      => HasClient t m (QueryParam' mod sym a :> sublayout) tag where
 
-  type Client t m (QueryParam sym a :> sublayout) tag =
+  type Client t m (QueryParam' mod sym a :> sublayout) tag =
     Dynamic t (QParam a) -> Client t m sublayout tag
 
   -- if mparam = Nothing, we don't add it to the query string
@@ -414,9 +414,9 @@ instance (KnownSymbol sym, ToHttpApiData a, HasClient t m sublayout tag, Reflex 
 -- > -- 'getBooksBy ["Isaac Asimov", "Robert A. Heinlein"]'
 -- > --   to get all books by Asimov and Heinlein
 instance (KnownSymbol sym, ToHttpApiData a, HasClient t m sublayout tag, Reflex t)
-      => HasClient t m (QueryParams' mod sym a :> sublayout) tag where
+      => HasClient t m (QueryParams sym a :> sublayout) tag where
 
-  type Client t m (QueryParams' mod sym a :> sublayout) tag =
+  type Client t m (QueryParams sym a :> sublayout) tag =
     Dynamic t [a] -> Client t m sublayout tag
 
   clientWithRouteAndResultHandler Proxy q t req baseurl opts wrap paramlist =
