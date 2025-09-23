@@ -11,7 +11,11 @@
 module Servant.Common.Req where
 
 -------------------------------------------------------------------------------
+#if MIN_VERSION_base(4,18,0)
 import           Control.Applicative        (liftA3)
+#else
+import           Control.Applicative     (liftA2, liftA3)
+#endif
 import           Control.Arrow              ((&&&))
 import           Control.Concurrent
 import           Control.Monad              (join)
@@ -37,7 +41,6 @@ import           Servant.API.ContentTypes   (MimeUnrender(..), NoContent(..))
 import           Web.HttpApiData            (ToHttpApiData(..))
 -------------------------------------------------------------------------------
 import           Servant.API.BasicAuth
-
 
 ------------------------------------------------------------------------------
 -- | The result of a request event
@@ -233,7 +236,7 @@ reqToReflexRequest reqMeth reqHost req =
                       , _xhrRequestConfig_password = Nothing
                       , _xhrRequestConfig_responseType = Just XhrResponseType_ArrayBuffer
                       , _xhrRequestConfig_withCredentials = False
-                      , _xhrRequestConfig_responseHeaders = def
+                      , _xhrRequestConfig_responseHeaders = respHeaders req
                       }
 
       xhrOpts :: Dynamic t (Either Text (XhrRequestConfig XhrPayload))
@@ -246,6 +249,7 @@ reqToReflexRequest reqMeth reqHost req =
                                                        , _xhrRequestConfig_responseType = Just XhrResponseType_ArrayBuffer
                                                        , _xhrRequestConfig_sendData = mempty
                                                        , _xhrRequestConfig_withCredentials = False
+                                                       , _xhrRequestConfig_responseHeaders = respHeaders req
                                                        }
         Just rBody -> liftA2 mkConfigBody xhrHeaders rBody
 
@@ -316,8 +320,8 @@ performSomeRequestsAsync opts =
 performSomeRequestsAsync'
     :: (MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, Traversable f, Show b)
     => ClientOptions
-    -> (XhrRequest b -> (a -> JSM ()) -> Performable m XMLHttpRequest)
-    -> Event t (Performable m (f (Either Text (XhrRequest b)))) -> m (Event t (f (Either Text a)))
+    -> (XhrRequest b -> (XhrResponse -> JSM ()) -> Performable m XMLHttpRequest)
+    -> Event t (Performable m (f (Either Text (XhrRequest b)))) -> m (Event t (f (Either Text XhrResponse)))
 performSomeRequestsAsync' opts newXhr req = performEventAsync $ ffor req $ \hrs cb -> do
   rs <- hrs
   resps <- forM rs $ \r -> case r of

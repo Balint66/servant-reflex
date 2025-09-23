@@ -38,6 +38,9 @@ module Servant.Reflex
   ) where
 
 ------------------------------------------------------------------------------
+#if !MIN_VERSION_base(4,18,0)
+import           Control.Applicative     (liftA2)
+#endif
 import qualified Data.CaseInsensitive    as CI
 import           Data.Functor.Identity
 import Data.Kind
@@ -86,7 +89,6 @@ import           Servant.Common.Req      (ClientOptions(..),
                                           response,
                                           reqTag,
                                           qParams, withCredentials)
-
 
 -- * Accessing APIs as a Client
 

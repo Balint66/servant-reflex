@@ -37,8 +37,11 @@ module Servant.Reflex.Multi (
     ) where
 
 ------------------------------------------------------------------------------
+#if !MIN_VERSION_base(4,18,0)
 import           Control.Applicative     (liftA2)
+#endif
 import           Data.Functor.Compose    (Compose (..), getCompose)
+import           Data.Kind (Type)
 import           Data.Proxy              (Proxy (..))
 import qualified Data.Set                as Set
 import           Data.Text               (Text)
@@ -78,7 +81,6 @@ import           Servant.Common.Req     (ClientOptions,
                                          respHeaders, response, withCredentials)
 import           Servant.Reflex         (BuildHeaderKeysTo (..), toHeaders)
 
-
 ------------------------------------------------------------------------------
 clientA :: (HasClientMulti t m layout f tag, Applicative f, Reflex t)
         => Proxy layout -> Proxy m -> Proxy f -> Proxy tag
@@ -98,8 +100,8 @@ clientWithOptsA p q f tag baseurl opts =
     (constDyn (pure defReq)) baseurl opts
 
 ------------------------------------------------------------------------------
-class HasClientMulti t m layout f (tag :: *) where
-  type ClientMulti t m layout f tag :: *
+class HasClientMulti t m layout f (tag :: Type) where
+  type ClientMulti t m layout f tag :: Type
   clientWithRouteMulti :: Proxy layout -> Proxy m -> Proxy f -> Proxy tag
                        -> Dynamic t (f (Req t)) -> Dynamic t BaseUrl
                        -> ClientOptions -> ClientMulti t m layout f tag
