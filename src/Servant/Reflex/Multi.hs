@@ -72,7 +72,7 @@ import           Reflex.Dom.Core         (Dynamic, Event, Reflex,
                                           XhrResponseHeaders (..),
                                           attachPromptlyDynWith, constDyn,
                                           Request, MonadHold(..),
-                                          fmapMaybe, ffor, leftmost, Requester,
+                                          fmapMaybe, ffor, leftmost,
                                           Response, XhrResponse (_xhrResponse_headers), XhrRequest)
 ------------------------------------------------------------------------------
 import           Servant.Common.BaseUrl (BaseUrl (..), Scheme (..),
@@ -381,7 +381,7 @@ instance (KnownSymbol sym,
           reqs'      = liftA2 req' <$> flags <*> reqs
 
 
-instance (SupportsServantReflex t m, Requester t m,
+instance (SupportsServantReflex t m,
           Traversable f, Applicative f, MonadHold t m) => HasClientMulti t m Raw f tag where
   type ClientMulti t m Raw f tag = f (Dynamic t (Either Text (XhrRequest ())))
                                  -> Event t tag
