@@ -58,7 +58,7 @@ instance GReflexConstraint api t m f k => GReflex api t m f k where
     gReflexProof :: GReflexConstraint api t m f k => Dict (GReflexConstraint api t m f k)
     gReflexProof = Dict
 
-instance (Monad m, HasClientMulti t m (ToServantApi api) f k,
+instance (Reflex t, Applicative m, HasClientMulti t m (ToServantApi api) f k,
         forall tt mm ff kk. Generic (api (AsReflex tt mm ff kk)),
         forall tt mm ff kk. GReflex api tt mm ff kk,
 --        GReflexConstraint api t m k,

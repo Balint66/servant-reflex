@@ -1,20 +1,14 @@
-{-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE CPP                        #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE InstanceSigs               #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE PolyKinds                  #-}
-{-# LANGUAGE Rank2Types                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE Rank2Types            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 #if MIN_VERSION_base(4,9,0)
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
@@ -101,7 +95,7 @@ clientWithOpts
     -> Dynamic t BaseUrl
     -> ClientOptions
     -> Client t m layout tag
-clientWithOpts p q t baseurl = clientWithRoute p q t (constDyn defReq) baseurl
+clientWithOpts p q t = clientWithRoute p q t (constDyn defReq)
 
 -- | Like 'clientWithOpts' but allows passing a function which will process the
 -- result event in some way. This can be used to handle errors in a uniform way
@@ -122,19 +116,20 @@ type Client t m layout tag = ClientMulti t m layout Identity tag
 -- | This class lets us define how each API combinator
 -- influences the creation of an HTTP request. It's mostly
 -- an internal class, you can just use 'client'.
-class (Reflex t, Monad m, HasClientMulti t m layout Identity tag) => HasClient t m layout (tag :: Type) where
-  clientWithRoute
-    :: Proxy layout
+type HasClient t m layout (tag :: Type) = HasClientMulti t m layout Identity tag
+--class (HasClientMulti t m layout Identity tag) => HasClient t m layout (tag :: Type) where
+clientWithRoute
+    :: (HasClient t m layout tag) => Proxy layout
     -> Proxy m
     -> Proxy tag
     -> Dynamic t (Req t)
     -> Dynamic t BaseUrl
     -> ClientOptions
     -> Client t m layout tag
-  clientWithRoute l m t r b o = clientWithRouteAndResultHandler l m t r b o return
+clientWithRoute l m t r b o = clientWithRouteAndResultHandler l m t r b o pure
 
-  clientWithRouteAndResultHandler
-    :: Proxy layout
+clientWithRouteAndResultHandler
+    :: (HasClient t m layout tag) => Proxy layout
     -> Proxy m
     -> Proxy tag
     -> Dynamic t (Req t)
@@ -142,7 +137,7 @@ class (Reflex t, Monad m, HasClientMulti t m layout Identity tag) => HasClient t
     -> ClientOptions
     -> (forall a. Event t (ReqResult tag a) -> m (Event t (ReqResult tag a)))
     -> Client t m layout tag
-  clientWithRouteAndResultHandler l m t r url opt wr = clientWithRouteAndResultHandlerMulti l m (Proxy :: Proxy Identity) t (fmap pure r) url opt (fmap (fmap Identity) . wr . (fmap runIdentity))
+clientWithRouteAndResultHandler l m t r url opt wr = clientWithRouteAndResultHandlerMulti l m (Proxy :: Proxy Identity) t (fmap pure r) url opt (fmap (fmap Identity) . wr . (fmap runIdentity))
 
 {-
 instance (HasClient t m a tag, HasClient t m b tag) => HasClient t m (a :<|> b) tag where

@@ -76,7 +76,7 @@ import           Reflex.Dom.Core         (Dynamic, Event, Reflex,
                                           Response, XhrResponse (_xhrResponse_headers), XhrRequest)
 ------------------------------------------------------------------------------
 import           Servant.Common.BaseUrl (BaseUrl (..), Scheme (..),
-                                         SupportsServantReflex, showBaseUrl)
+                                         SupportsServantReflex)
 import           Servant.Common.Req     (ClientOptions,
                                          QParam (..), QueryPart (..), Req,
                                          ReqResult(..), addHeader, authData,
@@ -92,7 +92,7 @@ import           Servant.Common.Req     (ClientOptions,
                                          XhrPayload, evalResponse)
 
 
-toHeaders :: forall t m ls tag a. (BuildHeadersTo ls) => ReqResult tag a -> ReqResult tag (Headers ls a)
+toHeaders :: forall ls tag a. (BuildHeadersTo ls) => ReqResult tag a -> ReqResult tag (Headers ls a)
 toHeaders r =
   let hdrs = maybe []
                    (\xhr -> fmap (\(h,v) -> (CI.map E.encodeUtf8 h, E.encodeUtf8 v))
@@ -134,7 +134,7 @@ clientWithOptsA p q f tag baseurl opts =
     (constDyn (pure defReq)) baseurl opts
 
 ------------------------------------------------------------------------------
-class Applicative m => HasClientMulti t m layout f (tag :: Type) where
+class (Reflex t, Applicative m) => HasClientMulti t m layout f (tag :: Type) where
   type ClientMulti t m layout f tag :: Type
   clientWithRouteMulti
     :: Proxy layout
