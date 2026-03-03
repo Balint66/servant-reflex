@@ -31,7 +31,7 @@ module Servant.Reflex
   , clientWithRoute
   , clientWithRouteAndResultHandler
   , BuildHeaderKeysTo(..)
-  , toHeaders
+--  , toHeaders
   , HasClient
   , Client
   , module Servant.Common.Req
@@ -50,10 +50,9 @@ import           Servant.Common.BaseUrl  (BaseUrl(..), Scheme(..), baseUrlWidget
                                           SupportsServantReflex)
 import           Servant.Common.Req      (ClientOptions(..),
                                           defaultClientOptions,
-                                          Req, ReqResult, ReqResultRaw(..), QParam(..),
+                                          Req, ReqResult(..), QParam(..),
                                           QueryPart(..), addHeader, authData,
                                           defReq, evalResponse, prependToPathParts,
-                                          setRequestHeaders,
                                           XhrPayload,
                                           -- performRequestCT,
                                           performRequestsCT,
@@ -65,10 +64,10 @@ import           Servant.Common.Req      (ClientOptions(..),
                                           reqMethod, respHeaders,
                                           response,
                                           reqTag,
-                                          ResponseData(..),
-                                          RequestConfig,
                                           qParams, withCredentials)
-import Servant.Reflex.Multi (BuildHeaderKeysTo(..), toHeaders, HasClientMulti(..))
+import Servant.Reflex.Multi (BuildHeaderKeysTo(..),
+--    toHeaders,
+    HasClientMulti(..))
 
 -- * Accessing APIs as a Client
 
@@ -100,7 +99,7 @@ clientWithOpts
     -> Proxy m
     -> Proxy tag
     -> Dynamic t BaseUrl
-    -> ClientOptions m
+    -> ClientOptions
     -> Client t m layout tag
 clientWithOpts p q t baseurl = clientWithRoute p q t (constDyn defReq) baseurl
 
@@ -113,8 +112,8 @@ clientWithOptsAndResultHandler
     -> Proxy m
     -> Proxy tag
     -> Dynamic t BaseUrl
-    -> ClientOptions m
-    -> (forall a. Event t (ReqResult tag t m a) -> m (Event t (ReqResult tag t m a)))
+    -> ClientOptions
+    -> (forall a. Event t (ReqResult tag a) -> m (Event t (ReqResult tag a)))
     -> Client t m layout tag
 clientWithOptsAndResultHandler p q t = clientWithRouteAndResultHandler p q t (constDyn defReq)
 
@@ -130,7 +129,7 @@ class (Reflex t, Monad m, HasClientMulti t m layout Identity tag) => HasClient t
     -> Proxy tag
     -> Dynamic t (Req t)
     -> Dynamic t BaseUrl
-    -> ClientOptions m
+    -> ClientOptions
     -> Client t m layout tag
   clientWithRoute l m t r b o = clientWithRouteAndResultHandler l m t r b o return
 
@@ -140,8 +139,8 @@ class (Reflex t, Monad m, HasClientMulti t m layout Identity tag) => HasClient t
     -> Proxy tag
     -> Dynamic t (Req t)
     -> Dynamic t BaseUrl
-    -> ClientOptions m
-    -> (forall a. Event t (ReqResult tag t m a) -> m (Event t (ReqResult tag t m a)))
+    -> ClientOptions
+    -> (forall a. Event t (ReqResult tag a) -> m (Event t (ReqResult tag a)))
     -> Client t m layout tag
   clientWithRouteAndResultHandler l m t r url opt wr = clientWithRouteAndResultHandlerMulti l m (Proxy :: Proxy Identity) t (fmap pure r) url opt (fmap (fmap Identity) . wr . (fmap runIdentity))
 

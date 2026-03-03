@@ -31,7 +31,6 @@ module Servant.Reflex.Multi (
     , withCredentials
 
     -- * Access response data
-    , ReqResultRaw (..)
     , ReqResult
     , reqSuccess
     , reqSuccess'
@@ -40,7 +39,7 @@ module Servant.Reflex.Multi (
 
     , HasClientMulti(..)
     , BuildHeaderKeysTo(..)
-    , toHeaders
+--    , toHeaders
     ) where
 
 ------------------------------------------------------------------------------
@@ -74,13 +73,13 @@ import           Reflex.Dom.Core         (Dynamic, Event, Reflex,
                                           attachPromptlyDynWith, constDyn,
                                           Request, MonadHold(..),
                                           fmapMaybe, ffor, leftmost, Requester,
-                                          Response)
+                                          Response, XhrResponse (_xhrResponse_headers), XhrRequest)
 ------------------------------------------------------------------------------
 import           Servant.Common.BaseUrl (BaseUrl (..), Scheme (..),
                                          SupportsServantReflex, showBaseUrl)
 import           Servant.Common.Req     (ClientOptions,
                                          QParam (..), QueryPart (..), Req,
-                                         ReqResultRaw (..), ReqResult, addHeader, authData,
+                                         ReqResult(..), addHeader, authData,
                                          defReq,
                                          defaultClientOptions,
                                          performRequestsCT,
@@ -90,17 +89,17 @@ import           Servant.Common.Req     (ClientOptions,
                                          qParams, reqBody, reqFailure,
                                          reqMethod, reqSuccess, reqSuccess',
                                          respHeaders, response, withCredentials,
-                                         ResponseData(..), XhrPayload, evalResponse, RequestConfig(setUrl, getUrl))
+                                         XhrPayload, evalResponse)
 
 
-toHeaders :: forall t m ls tag a. (ResponseData t m, BuildHeadersTo ls) => ReqResult tag t m a -> ReqResult tag t m (Headers ls a)
+toHeaders :: forall t m ls tag a. (BuildHeadersTo ls) => ReqResult tag a -> ReqResult tag (Headers ls a)
 toHeaders r =
   let hdrs = maybe []
                    (\xhr -> fmap (\(h,v) -> (CI.map E.encodeUtf8 h, E.encodeUtf8 v))
-                     (Map.toList $ getResponseHeaders @t @m xhr))
+                     (Map.toList $ _xhrResponse_headers xhr))
                    (response r)
   in  ffor r $ \a -> Headers {getResponse = a ,getHeadersHList = buildHeadersTo hdrs}
-
+---}
 
 class BuildHeaderKeysTo hs where
   buildHeaderKeysTo :: Proxy hs -> [CI.CI T.Text]
@@ -129,13 +128,13 @@ clientA p q f tag baseurl  =
 -- on requests. Use this function for clients of CORS API's
 clientWithOptsA :: (HasClientMulti t m layout f tag, Applicative f, Reflex t)
                  => Proxy layout -> Proxy m -> Proxy f -> Proxy tag
-                 -> Dynamic t BaseUrl -> ClientOptions m -> ClientMulti t m layout f tag
+                 -> Dynamic t BaseUrl -> ClientOptions -> ClientMulti t m layout f tag
 clientWithOptsA p q f tag baseurl opts =
     clientWithRouteMulti p q f tag
     (constDyn (pure defReq)) baseurl opts
 
 ------------------------------------------------------------------------------
-class (Monad m) => HasClientMulti t m layout f (tag :: Type) where
+class Applicative m => HasClientMulti t m layout f (tag :: Type) where
   type ClientMulti t m layout f tag :: Type
   clientWithRouteMulti
     :: Proxy layout
@@ -144,9 +143,9 @@ class (Monad m) => HasClientMulti t m layout f (tag :: Type) where
       -> Proxy tag
       -> Dynamic t (f (Req t))
       -> Dynamic t BaseUrl
-      -> ClientOptions m
+      -> ClientOptions
       -> ClientMulti t m layout f tag
-  clientWithRouteMulti l m f t r b o = clientWithRouteAndResultHandlerMulti l m f t r b o return
+  clientWithRouteMulti l m f t r b o = clientWithRouteAndResultHandlerMulti l m f t r b o pure
 
   clientWithRouteAndResultHandlerMulti
     :: Proxy layout
@@ -155,8 +154,8 @@ class (Monad m) => HasClientMulti t m layout f (tag :: Type) where
     -> Proxy tag
     -> Dynamic t (f (Req t))
     -> Dynamic t BaseUrl
-    -> ClientOptions m
-    -> (forall a. Event t (f (ReqResult tag t m a)) -> m (Event t (f (ReqResult tag t m a))))
+    -> ClientOptions
+    -> (forall a. Event t (f (ReqResult tag a)) -> m (Event t (f (ReqResult tag a))))
     -> ClientMulti t m layout f tag
 
 
@@ -197,13 +196,11 @@ instance {-# OVERLAPPABLE #-}
    Applicative f,
    Traversable f,
    MonadHold t m,
-   ResponseData t m,
-   RequestConfig t m,
    Functor (Response m)
   ) => HasClientMulti t m (Verb method status cts' a) f tag where
 
   type ClientMulti t m (Verb method status cts' a) f tag =
-    Event t tag -> m (Event t (f (ReqResult tag t m a)))
+    Event t tag -> m (Event t (f (ReqResult tag a)))
 
   clientWithRouteAndResultHandlerMulti _ _ _ _ reqs baseurl opts wrap val =
     wrap =<< performRequestsCT (Proxy :: Proxy ct) method reqs' baseurl opts val
@@ -218,12 +215,10 @@ instance {-# OVERLAPPING #-}
   SupportsServantReflex t m,
   Traversable f,
   Functor (Response m),
-  MonadHold t m,
-  ResponseData t m,
-  RequestConfig t m) =>
+  MonadHold t m) =>
   HasClientMulti t m (Verb method status cts NoContent) f tag where
   type ClientMulti t m (Verb method status cts NoContent) f tag =
-    Event t tag -> m (Event t (f (ReqResult tag t m NoContent)))
+    Event t tag -> m (Event t (f (ReqResult tag NoContent)))
     -- TODO: how to access input types here?
     -- ExceptT ServantError IO NoContent
   clientWithRouteAndResultHandlerMulti Proxy _ _ _ req baseurl opts wrap val =
@@ -239,15 +234,13 @@ instance {-# OVERLAPPABLE #-}
     SupportsServantReflex t m,
     Traversable f,
     MonadHold t m,
-    ResponseData t m,
-    RequestConfig t m,
     Functor (Response m)
   ) => HasClientMulti t m (Verb method status cts' (Headers ls a)) f tag where
   type ClientMulti t m (Verb method status cts' (Headers ls a)) f tag =
-    Event t tag -> m (Event t (f (ReqResult tag t m (Headers ls a))))
+    Event t tag -> m (Event t (f (ReqResult tag (Headers ls a))))
   clientWithRouteAndResultHandlerMulti Proxy _ _ _ reqs baseurl opts wrap triggers = do
     let method = E.decodeUtf8 $ reflectMethod (Proxy :: Proxy method)
-    resp <- performRequestsCT (Proxy :: Proxy ct) method reqs' baseurl opts triggers :: m (Event t (f (ReqResult tag t m a)))
+    resp <- performRequestsCT (Proxy :: Proxy ct) method reqs' baseurl opts triggers :: m (Event t (f (ReqResult tag a)))
     wrap $ fmap toHeaders <$> resp
     where
       reqs' = fmap (\r ->
@@ -265,13 +258,11 @@ instance {-# OVERLAPPABLE #-}
     SupportsServantReflex t m,
     Traversable f,
     Functor (Response m),
-    MonadHold t m,
-    ResponseData t m,
-    RequestConfig t m
+    MonadHold t m
   ) => HasClientMulti t m (Verb method status
                            cts (Headers ls NoContent)) f tag where
   type ClientMulti t m (Verb method status cts (Headers ls NoContent)) f tag
-    = Event t tag -> m (Event t (f (ReqResult tag t m (Headers ls NoContent))))
+    = Event t tag -> m (Event t (f (ReqResult tag (Headers ls NoContent))))
   clientWithRouteAndResultHandlerMulti Proxy _ _ _ reqs baseurl opts wrap triggers = do
     let method = E.decodeUtf8 $ reflectMethod (Proxy :: Proxy method)
     resp <- performRequestsNoBody method reqs' baseurl opts triggers
@@ -390,30 +381,30 @@ instance (KnownSymbol sym,
           reqs'      = liftA2 req' <$> flags <*> reqs
 
 
-instance (SupportsServantReflex t m, Requester t m, ResponseData t m,
-          Traversable f, Applicative f, MonadHold t m, RequestConfig t m) => HasClientMulti t m Raw f tag where
-  type ClientMulti t m Raw f tag = f (Dynamic t (Either Text (Request m XhrPayload)))
+instance (SupportsServantReflex t m, Requester t m,
+          Traversable f, Applicative f, MonadHold t m) => HasClientMulti t m Raw f tag where
+  type ClientMulti t m Raw f tag = f (Dynamic t (Either Text (XhrRequest ())))
                                  -> Event t tag
-                                 -> m (Event t (f (ReqResult tag t m ())))
+                                 -> m (Event t (f (ReqResult tag ())))
   
-  clientWithRouteAndResultHandlerMulti _ _ _ _ _ baseurl opts wrap rawReqs triggers = do
-    let rawReqs' = sequence $ fmap (\t ->liftA2 (\x path -> case x of
-                             Left e -> Left e
-                             Right jx -> Right $ setUrl @t @m jx (path <> getUrl @t @m jx)
-                         )  t (showBaseUrl <$> baseurl)) rawReqs
+  clientWithRouteAndResultHandlerMulti _ _ _ _ _ _ opts wrap rawReqs triggers = do
+    let rawReqs' = sequence rawReqs :: Dynamic t (f (Either Text (XhrRequest ())))
         rawReqs'' = attachPromptlyDynWith (\fxhr t -> Compose (t, fxhr)) rawReqs' triggers
-    resps' <- {-fmap (fmap (evalResponse (const $ Right ())) . sequenceA . getCompose)-} performSomeRequestsAsync opts rawReqs''
+        aux (tag, Right r) = Right (tag, r)
+        aux (tag, Left  e) = Left (tag, e)
+    resps' <- fmap (fmap aux . sequenceA . getCompose) <$> performSomeRequestsAsync opts rawReqs''
     let 
-        badReq = fmapMaybe (\(Compose (t, fx)) -> traverse (either (Just . (t,)) (const Nothing)) fx) resps'
-        okReq  = fmapMaybe (\(Compose (t , fx)) -> traverse(either (const Nothing) (Just . (t,))) fx) resps'
+        badReq = {- fmapMaybe (\(Compose (t, fx)) -> traverse (either (Just . (t,)) (const Nothing)) fx) $ -}
+                  fmapMaybe (traverse (either Just (const Nothing))) $ resps'
+        okReq  = {- fmapMaybe (\(Compose (t , fx)) -> traverse(either (const Nothing) (Just . (t,))) fx) $ -}
+                    fmapMaybe (traverse (either (const Nothing) Just)) $ resps'
     let resps = fmap (evalResponse (const $ Right ())) <$> okReq
     let
-        ret :: Event t (f (ReqResult tag t m ()))
+        ret :: Event t (f (ReqResult tag ()))
         ret = leftmost [ fmap (fmap (uncurry RequestFailure)) badReq
                       , resps
                       ]
     wrap ret
-
 
 instance (MimeRender ct a,
           HasClientMulti t m sublayout f tag,
