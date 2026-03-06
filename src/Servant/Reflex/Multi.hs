@@ -39,7 +39,7 @@ module Servant.Reflex.Multi (
 
     , HasClientMulti(..)
     , BuildHeaderKeysTo(..)
---    , toHeaders
+    , toHeaders
     ) where
 
 ------------------------------------------------------------------------------
@@ -66,12 +66,13 @@ import           Servant.API             ((:<|>) (..), (:>), BasicAuth,
                                           RemoteHost, ReqBody,
                                           ToHttpApiData (..), Vault, Verb,
                                           contentType)
+import           Servant.API.Capture     (CaptureAll)
 import           Servant.API.Description (Summary)
 
 import           Reflex.Dom.Core         (Dynamic, Event, Reflex,
                                           XhrResponseHeaders (..),
                                           attachPromptlyDynWith, constDyn,
-                                          Request, MonadHold(..),
+                                          MonadHold(..),
                                           fmapMaybe, ffor, leftmost,
                                           Response, XhrResponse (_xhrResponse_headers), XhrRequest)
 ------------------------------------------------------------------------------
@@ -89,17 +90,16 @@ import           Servant.Common.Req     (ClientOptions,
                                          qParams, reqBody, reqFailure,
                                          reqMethod, reqSuccess, reqSuccess',
                                          respHeaders, response, withCredentials,
-                                         XhrPayload, evalResponse)
+                                         evalResponse)
 
 
 toHeaders :: forall ls tag a. (BuildHeadersTo ls) => ReqResult tag a -> ReqResult tag (Headers ls a)
 toHeaders r =
   let hdrs = maybe []
-                   (\xhr -> fmap (\(h,v) -> (CI.map E.encodeUtf8 h, E.encodeUtf8 v))
-                     (Map.toList $ _xhrResponse_headers xhr))
-                   (response r)
+                    (\xhr -> fmap (\(h,v) -> (CI.map E.encodeUtf8 h, E.encodeUtf8 v))
+                      (Map.toList $ _xhrResponse_headers xhr))
+                    (response r)
   in  ffor r $ \a -> Headers {getResponse = a ,getHeadersHList = buildHeadersTo hdrs}
----}
 
 class BuildHeaderKeysTo hs where
   buildHeaderKeysTo :: Proxy hs -> [CI.CI T.Text]
@@ -127,14 +127,14 @@ clientA p q f tag baseurl  =
 -- | A version of @client@ that sets the withCredentials flag
 -- on requests. Use this function for clients of CORS API's
 clientWithOptsA :: (HasClientMulti t m layout f tag, Applicative f, Reflex t)
-                 => Proxy layout -> Proxy m -> Proxy f -> Proxy tag
-                 -> Dynamic t BaseUrl -> ClientOptions -> ClientMulti t m layout f tag
+                  => Proxy layout -> Proxy m -> Proxy f -> Proxy tag
+                  -> Dynamic t BaseUrl -> ClientOptions -> ClientMulti t m layout f tag
 clientWithOptsA p q f tag baseurl opts =
     clientWithRouteMulti p q f tag
     (constDyn (pure defReq)) baseurl opts
 
 ------------------------------------------------------------------------------
-class (Reflex t, Applicative m) => HasClientMulti t m layout f (tag :: Type) where
+class (Applicative m) => HasClientMulti t m layout f (tag :: Type) where
   type ClientMulti t m layout f tag :: Type
   clientWithRouteMulti
     :: Proxy layout
@@ -170,6 +170,17 @@ instance (HasClientMulti t m a f tag, HasClientMulti t m b f tag) =>
 
 
 ------------------------------------------------------------------------------
+-- Capture. Example:
+-- > type MyApi = "books" :> Capture "isbn" Text :> Get '[JSON] Book
+-- >
+-- > myApi :: Proxy MyApi = Proxy
+-- >
+-- > getBook :: SupportsServantReflex t m
+--           => Dynamic t BaseUrl
+--           -> Dynamic t (Maybe Text)
+--           -> Event t l
+--           -> m (Event t (l, ReqResult Book))
+-- > getBook = client myApi (constDyn host)
 instance (SupportsServantReflex t m,
           ToHttpApiData a,
           HasClientMulti t m sublayout f tag,
@@ -227,6 +238,10 @@ instance {-# OVERLAPPING #-}
 
 
 ------------------------------------------------------------------------------
+-- HEADERS Verb (Content) --
+-- Headers combinator not treated in fully general case,
+-- in order to deny instances for (Headers ls (Capture "id" Int)),
+-- a combinator that wouldn't make sense
 instance {-# OVERLAPPABLE #-}
   -- Note [Non-Empty Content Types]
   ( MimeUnrender ct a, BuildHeadersTo ls, BuildHeaderKeysTo ls,
@@ -246,7 +261,7 @@ instance {-# OVERLAPPABLE #-}
       reqs' = fmap (\r ->
                 r { respHeaders =
                     OnlyHeaders (Set.fromList
-                                 (buildHeaderKeysTo (Proxy :: Proxy ls)))
+                                  (buildHeaderKeysTo (Proxy :: Proxy ls)))
                   }) <$> reqs
 
 
@@ -260,7 +275,7 @@ instance {-# OVERLAPPABLE #-}
     Functor (Response m),
     MonadHold t m
   ) => HasClientMulti t m (Verb method status
-                           cts (Headers ls NoContent)) f tag where
+                          cts (Headers ls NoContent)) f tag where
   type ClientMulti t m (Verb method status cts (Headers ls NoContent)) f tag
     = Event t tag -> m (Event t (f (ReqResult tag (Headers ls NoContent))))
   clientWithRouteAndResultHandlerMulti Proxy _ _ _ reqs baseurl opts wrap triggers = do
@@ -269,16 +284,28 @@ instance {-# OVERLAPPABLE #-}
     wrap $ fmap toHeaders <$> resp
     where reqs' = fmap (\req ->
                     req {respHeaders = OnlyHeaders (Set.fromList
-                         (buildHeaderKeysTo (Proxy :: Proxy ls)))
+                          (buildHeaderKeysTo (Proxy :: Proxy ls)))
                         }) <$> reqs
 
 
 ------------------------------------------------------------------------------
+-- HEADER
+-- > newtype Referer = Referer { referrer :: Text }
+-- >   deriving (Eq, Show, Generic, FromText, ToHttpApiData)
+-- >
+-- >            -- GET /view-my-referer
+-- > type MyApi = "view-my-referer" :> Header "Referer" Referer :> Get '[JSON] Referer
+-- >
+-- >
+-- > viewReferer :: Maybe Referer -> ExceptT String IO Book
+-- > viewReferer = client myApi host
+-- >   where host = BaseUrl Http "localhost" 8080
+-- > -- then you can just use "viewRefer" to query that endpoint
+-- > -- specifying Nothing or e.g Just "http://haskell.org/" as arguments
 instance (KnownSymbol sym,
           ToHttpApiData a,
           HasClientMulti t m sublayout f tag,
           SupportsServantReflex t m,
-          Traversable f,
           Applicative f)
       => HasClientMulti t m (Header sym a :> sublayout) f tag where
 
@@ -296,6 +323,8 @@ instance (KnownSymbol sym,
 
 
 ------------------------------------------------------------------------------
+-- | Using a 'HttpVersion' combinator in your API doesn't affect the client
+-- functions.
 instance HasClientMulti t m sublayout f tag
   => HasClientMulti t m (HttpVersion :> sublayout) f tag where
 
@@ -307,6 +336,8 @@ instance HasClientMulti t m sublayout f tag
 
 
 ------------------------------------------------------------------------------
+-- | Using a 'Summary' combinator in your API doesn't affect the client
+-- functions.
 instance (HasClientMulti t m sublayout f tag, KnownSymbol sym)
   => HasClientMulti t m (Summary sym :> sublayout) f tag where
 
@@ -318,6 +349,32 @@ instance (HasClientMulti t m sublayout f tag, KnownSymbol sym)
 
 
 ------------------------------------------------------------------------------
+-- | If you use a 'QueryParam' in one of your endpoints in your API,
+-- the corresponding querying function will automatically take
+-- an additional argument of the type specified by your 'QueryParam',
+-- enclosed in Maybe.
+--
+-- If you give Nothing, nothing will be added to the query string.
+--
+-- If you give a non-'Nothing' value, this function will take care
+-- of inserting a textual representation of this value in the query string.
+--
+-- You can control how values for your type are turned into
+-- text by specifying a 'ToHttpApiData' instance for your type.
+--
+-- Example:
+--
+-- > type MyApi = "books" :> QueryParam "author" Text :> Get '[JSON] [Book]
+-- >
+-- > myApi :: Proxy MyApi
+-- > myApi = Proxy
+-- >
+-- > getBooksBy :: Maybe Text -> ExceptT String IO [Book]
+-- > getBooksBy = client myApi host
+-- >   where host = BaseUrl Http "localhost" 8080
+-- > -- then you can just use "getBooksBy" to query that endpoint.
+-- > -- 'getBooksBy Nothing' for all books
+-- > -- 'getBooksBy (Just "Isaac Asimov")' to get all books by Isaac Asimov
 instance (KnownSymbol sym,
           ToHttpApiData a,
           HasClientMulti t m sublayout f tag,
@@ -342,7 +399,34 @@ instance (KnownSymbol sym,
           reqs' = liftA2 (\(pr :: QParam a) (r :: Req t) -> r { qParams = paramPair (constDyn pr) : qParams r })
                   <$> mparams <*> reqs
 
-
+-- | If you use a 'QueryParams' in one of your endpoints in your API,
+-- the corresponding querying function will automatically take
+-- an additional argument, a list of values of the type specified
+-- by your 'QueryParams'.
+--
+-- If you give an empty list, nothing will be added to the query string.
+--
+-- Otherwise, this function will take care
+-- of inserting a textual representation of your values in the query string,
+-- under the same query string parameter name.
+--
+-- You can control how values for your type are turned into
+-- text by specifying a 'ToHttpApiData' instance for your type.
+--
+-- Example:
+--
+-- > type MyApi = "books" :> QueryParams "authors" Text :> Get '[JSON] [Book]
+-- >
+-- > myApi :: Proxy MyApi
+-- > myApi = Proxy
+-- >
+-- > getBooksBy :: [Text] -> ExceptT String IO [Book]
+-- > getBooksBy = client myApi host
+-- >   where host = BaseUrl Http "localhost" 8080
+-- > -- then you can just use "getBooksBy" to query that endpoint.
+-- > -- 'getBooksBy []' for all books
+-- > -- 'getBooksBy ["Isaac Asimov", "Robert A. Heinlein"]'
+-- > --   to get all books by Asimov and Heinlein
 instance (KnownSymbol sym,
           ToHttpApiData a,
           HasClientMulti t m sublayout f tag,
@@ -362,7 +446,28 @@ instance (KnownSymbol sym,
                         l
             reqs' = liftA2 req' <$> paramlists <*> reqs
 
-
+-- | If you use a 'QueryFlag' in one of your endpoints in your API,
+-- the corresponding querying function will automatically take
+-- an additional 'Bool' argument.
+--
+-- If you give 'False', nothing will be added to the query string.
+--
+-- Otherwise, this function will insert a value-less query string
+-- parameter under the name associated to your 'QueryFlag'.
+--
+-- Example:
+--
+-- > type MyApi = "books" :> QueryFlag "published" :> Get '[JSON] [Book]
+-- >
+-- > myApi :: Proxy MyApi
+-- > myApi = Proxy
+-- >
+-- > getBooks :: Bool -> ExceptT String IO [Book]
+-- > getBooks = client myApi host
+-- >   where host = BaseUrl Http "localhost" 8080
+-- > -- then you can just use "getBooks" to query that endpoint.
+-- > -- 'getBooksBy False' for all books
+-- > -- 'getBooksBy True' to only get _already published_ books
 instance (KnownSymbol sym,
           HasClientMulti t m sublayout f tag,
           Reflex t,
@@ -380,20 +485,20 @@ instance (KnownSymbol sym,
           pName      = symbolVal (Proxy :: Proxy sym)
           reqs'      = liftA2 req' <$> flags <*> reqs
 
-
+-- | Send a raw 'XhrRequest ()' directly to 'baseurl'
 instance (SupportsServantReflex t m,
           Traversable f, Applicative f, MonadHold t m) => HasClientMulti t m Raw f tag where
   type ClientMulti t m Raw f tag = f (Dynamic t (Either Text (XhrRequest ())))
                                  -> Event t tag
                                  -> m (Event t (f (ReqResult tag ())))
-  
+
   clientWithRouteAndResultHandlerMulti _ _ _ _ _ _ opts wrap rawReqs triggers = do
     let rawReqs' = sequence rawReqs :: Dynamic t (f (Either Text (XhrRequest ())))
         rawReqs'' = attachPromptlyDynWith (\fxhr t -> Compose (t, fxhr)) rawReqs' triggers
         aux (tag, Right r) = Right (tag, r)
         aux (tag, Left  e) = Left (tag, e)
     resps' <- fmap (fmap aux . sequenceA . getCompose) <$> performSomeRequestsAsync opts rawReqs''
-    let 
+    let
         badReq = {- fmapMaybe (\(Compose (t, fx)) -> traverse (either (Just . (t,)) (const Nothing)) fx) $ -}
                   fmapMaybe (traverse (either Just (const Nothing))) $ resps'
         okReq  = {- fmapMaybe (\(Compose (t , fx)) -> traverse(either (const Nothing) (Just . (t,))) fx) $ -}
@@ -406,6 +511,25 @@ instance (SupportsServantReflex t m,
                       ]
     wrap ret
 
+-- | If you use a 'ReqBody' in one of your endpoints in your API,
+-- the corresponding querying function will automatically take
+-- an additional argument of the type specified by your 'ReqBody'.
+-- That function will take care of encoding this argument as JSON and
+-- of using it as the request body.
+--
+-- All you need is for your type to have a 'ToJSON' instance.
+--
+-- Example:
+--
+-- > type MyApi = "books" :> ReqBody '[JSON] Book :> Post '[JSON] Book
+-- >
+-- > myApi :: Proxy MyApi
+-- > myApi = Proxy
+-- >
+-- > addBook :: Book -> ExceptT String IO Book
+-- > addBook = client myApi host
+-- >   where host = BaseUrl Http "localhost" 8080
+-- > -- then you can just use "addBook" to query that endpoint
 instance (MimeRender ct a,
           HasClientMulti t m sublayout f tag,
           Reflex t,
@@ -417,15 +541,15 @@ instance (MimeRender ct a,
 
   clientWithRouteAndResultHandlerMulti Proxy q f tag reqs baseurl opts wrap bodies =
     clientWithRouteAndResultHandlerMulti (Proxy :: Proxy sublayout) q f tag reqs' baseurl opts wrap
-       where req'        b r = r { reqBody = bodyBytesCT (constDyn b) }
-             ctProxy         = Proxy :: Proxy ct
-             ctString        = T.pack $ show $ contentType ctProxy
-             bodyBytesCT b   = Just $ (fmap . fmap)
-                               (\b' -> (mimeRender ctProxy b', ctString))
-                               b
-             reqs'           = liftA2 req' <$> bodies <*> reqs
+      where req'        b r = r { reqBody = bodyBytesCT (constDyn b) }
+            ctProxy         = Proxy :: Proxy ct
+            ctString        = T.pack $ show $ contentType ctProxy
+            bodyBytesCT b   = Just $ (fmap . fmap)
+                              (\b' -> (mimeRender ctProxy b', ctString))
+                              b
+            reqs'           = liftA2 req' <$> bodies <*> reqs
 
-
+-- | Make the querying function append @path@ to the request path.
 instance (KnownSymbol path,
           HasClientMulti t m sublayout f tag,
           Reflex t,
@@ -472,3 +596,26 @@ instance (HasClientMulti t m api f tag, Reflex t, Applicative f)
       where
         req'  a r = r { authData = Just (constDyn a) }
         reqs' = liftA2 req' <$> authdatas <*> reqs
+
+instance (Functor f, SupportsServantReflex t m, HasClientMulti t m subLayout f tag, ToHttpApiData ty) => HasClientMulti t m (CaptureAll symb ty :> subLayout) f tag where
+  type ClientMulti t m (CaptureAll symb ty :> subLayout) f tag =
+    Dynamic t (Either Text ty) -> ClientMulti t m subLayout f tag
+  clientWithRouteAndResultHandlerMulti _ f q t req baseurl opts warp trigs = let
+    p = ((fmap . fmap) toUrlPiece trigs)
+    in clientWithRouteAndResultHandlerMulti (Proxy @subLayout) f q t (fmap (fmap (prependToPathParts p)) req) baseurl opts warp
+
+{- Note [Non-Empty Content Types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Rather than have
+
+   instance (..., cts' ~ (ct ': cts)) => ... cts' ...
+
+It may seem to make more sense to have:
+
+   instance (...) => ... (ct ': cts) ...
+
+But this means that if another instance exists that does *not* require
+non-empty lists, but is otherwise more specific, no instance will be overall
+more specific. This in turn generally means adding yet another instance (one
+for empty and one for non-empty lists).
+-}
