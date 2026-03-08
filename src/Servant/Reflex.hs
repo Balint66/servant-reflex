@@ -135,7 +135,7 @@ clientWithRouteAndResultHandler
     -> ClientOptions
     -> (forall a. Event t (ReqResult tag a) -> m (Event t (ReqResult tag a)))
     -> Client t m layout tag
-clientWithRouteAndResultHandler l m t r url opt wr = clientWithRouteAndResultHandlerMulti l m (Proxy :: Proxy Identity) t (fmap pure r) url opt (fmap (fmap Identity) . wr . (fmap runIdentity))
+clientWithRouteAndResultHandler l m t r url opt wr = clientWithRouteAndResultHandlerMulti l m (Proxy :: Proxy Identity) t (fmap pure r) url opt (fmap (fmap Identity) . wr . fmap runIdentity)
 
 
 {-

@@ -14,33 +14,36 @@ module Servant.Common.Req where
 #if MIN_VERSION_base(4,18,0)
 import           Control.Applicative        (liftA3)
 #else
-import           Control.Applicative        (liftA2, liftA3)
+import           Control.Applicative        (liftA3)
 #endif
 import           Control.Arrow              ((&&&))
-import           Control.Concurrent
-          (forkIO, newEmptyMVar, newMVar, putMVar, takeMVar)
 import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Data.Bifunctor             (first)
+import           Data.ByteString            (ByteString)
 import qualified Data.ByteString.Builder    as Builder
 import qualified Data.ByteString.Lazy.Char8 as BL
-import           Data.ByteString            (ByteString)
+import           Data.Functor.Compose       ( Compose(getCompose, Compose) )
 import qualified Data.Map                   as Map
 import           Data.Maybe                 (catMaybes, fromMaybe)
-import           Data.Functor.Compose       ( Compose(getCompose, Compose) )
 import           Data.Proxy                 (Proxy(..))
-import           Data.Text                  (Text)
 import qualified Data.Text                  as T
+import           Data.Text                  (Text)
 import qualified Data.Text.Encoding         as TE
-import           Data.Traversable           (forM)
-import           Language.Javascript.JSaddle.Monad (JSM, MonadJSM, liftJSM, askJSM, runJSM)
+import           Data.Traversable           (for)
+import           Language.Javascript.JSaddle.Monad (JSM, MonadJSM, askJSM, runJSM)
 import qualified Network.URI                as N
 import           Reflex.Dom.Core                 hiding (tag)
-import           Servant.Common.BaseUrl     (BaseUrl, showBaseUrl,
-                                             SupportsServantReflex)
-import           Servant.API.ContentTypes   (MimeUnrender(..), NoContent(..))
-import           Web.HttpApiData            (ToHttpApiData(..))
--------------------------------------------------------------------------------
 import           Servant.API.BasicAuth
+import           Servant.API.ContentTypes   (MimeUnrender(..), NoContent(..))
+import           Servant.Common.BaseUrl     (BaseUrl, SupportsServantReflex,
+                                             showBaseUrl)
+-------------------------------------------------------------------------------
+import           Web.HttpApiData            (ToHttpApiData(..))
+import Data.IORef (IORef)
+import GHC.IORef (newIORef, readIORef, atomicModifyIORef', writeIORef)
+import Control.Monad (when)
+import Data.Foldable (forM_, Foldable (toList))
+import Data.Functor (void)
 
 ------------------------------------------------------------------------------
 -- | The result of a request event
@@ -275,7 +278,7 @@ displayHttpRequest :: Text -> Text
 displayHttpRequest httpmethod = "HTTP " <> httpmethod <> " request"
 
 -- | This function performs the request
-performRequests :: forall t m f tag.(SupportsServantReflex t m, Traversable f)
+performRequests :: forall t m f tag. (SupportsServantReflex t m, Traversable f)
                 => Text
                 -> Dynamic t (f (Req t))
                 -> Dynamic t BaseUrl
@@ -313,9 +316,13 @@ performSomeRequestsAsync opts =
     performSomeRequestsAsync' opts newXMLHttpRequest . fmap return
 
 
+data XhrRequestWrapper a where
+    XhrRequestWrapper :: XhrRequest b -> XhrRequestWrapper (Either Text XhrResponse)
+
 ------------------------------------------------------------------------------
 -- | A modified version or Reflex.Dom.Xhr.performRequestsAsync
 -- that accepts 'f (Either e (XhrRequestb))' events
+{-
 performSomeRequestsAsync'
     :: (MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, Traversable f, Show b)
     => ClientOptions
@@ -333,6 +340,60 @@ performSomeRequestsAsync' opts newXhr req = performEventAsync . ffor req $ \hrs 
           return resp
   _ <- liftIO $ forkIO $ cb =<< forM resps takeMVar
   return ()
+-}
+performSomeRequestsAsync'
+  :: forall t m f b.
+     ( MonadJSM (Performable m)
+     , PerformEvent t m
+     , TriggerEvent t m
+     , Traversable f
+     , Show b
+     )
+  => ClientOptions -> (XhrRequest b -> (XhrResponse -> JSM ()) -> Performable m XMLHttpRequest) -- ^ newXhr
+  -> Event t (Performable m (f (Either Text (XhrRequest b))))
+  -> m (Event t (f (Either Text XhrResponse)))
+performSomeRequestsAsync' opts newXhr reqP = do
+  -- First, run the Performable actions to get a plain Event of requests
+  reqE :: Event t (f (Either Text (XhrRequest b))) <- performEvent reqP
+
+  -- Then perform the XHRs per burst, preserving shape and emitting once
+  performEventAsync $ ffor reqE $ \rs cb -> do
+
+    ctx <- askJSM
+    completedRef <- liftIO $ newIORef (0 :: Int)
+    -- One cell per element to preserve order on finalization
+    cells :: f (IORef (Maybe (Either Text XhrResponse))) <-
+      liftIO $ for rs (const (newIORef Nothing))
+
+    let
+      -- | Number of elements in this burst
+      n :: Int
+      n = length rs
+      -- | Finalization: read cells in order, build the output, and fire exactly once
+      finalize :: IO ()
+      finalize = do
+        outF <- for cells $ \cell -> do
+          mx <- readIORef cell
+          case mx of
+            Just x  -> pure x
+            Nothing -> error "performSomeRequestsAsyncMerged: invariant violated (missing element)"
+        cb outF
+      -- | Increment 'completed' and finalize when the last one completes
+      markDone :: IO ()
+      markDone = do
+        c' <- atomicModifyIORef' completedRef (\c -> let d = c + 1 in (d, d))
+        when (c' == n) finalize
+
+    forM_ (zip (toList cells) (toList rs)) $ \(cell, e) -> case e of
+      Left err -> liftIO $ do
+        writeIORef cell (Just (Left err))
+        markDone
+
+      Right r0 -> do
+        r <- (`runJSM` ctx) (optsRequestFixup opts r0)
+        void $ newXhr r $ \resp -> liftIO $ do
+                writeIORef cell (Just (Right resp))
+                markDone
 
 
 

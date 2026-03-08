@@ -1,5 +1,4 @@
 {-# LANGUAGE ConstraintKinds     #-}
-{-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
@@ -7,7 +6,6 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE ViewPatterns        #-}
 {-# LANGUAGE LambdaCase #-}
 module Servant.Common.BaseUrl (
   -- * types
