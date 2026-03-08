@@ -14,10 +14,11 @@ module Servant.Common.Req where
 #if MIN_VERSION_base(4,18,0)
 import           Control.Applicative        (liftA3)
 #else
-import           Control.Applicative     (liftA2, liftA3)
+import           Control.Applicative        (liftA2, liftA3)
 #endif
 import           Control.Arrow              ((&&&))
 import           Control.Concurrent
+          (forkIO, newEmptyMVar, newMVar, putMVar, takeMVar)
 import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Data.Bifunctor             (first)
 import qualified Data.ByteString.Builder    as Builder
@@ -25,13 +26,13 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 import           Data.ByteString            (ByteString)
 import qualified Data.Map                   as Map
 import           Data.Maybe                 (catMaybes, fromMaybe)
-import           Data.Functor.Compose
+import           Data.Functor.Compose       ( Compose(getCompose, Compose) )
 import           Data.Proxy                 (Proxy(..))
 import           Data.Text                  (Text)
 import qualified Data.Text                  as T
 import qualified Data.Text.Encoding         as TE
 import           Data.Traversable           (forM)
-import           Language.Javascript.JSaddle.Monad (JSM, MonadJSM, liftJSM)
+import           Language.Javascript.JSaddle.Monad (JSM, MonadJSM, liftJSM, askJSM, runJSM)
 import qualified Network.URI                as N
 import           Reflex.Dom.Core                 hiding (tag)
 import           Servant.Common.BaseUrl     (BaseUrl, showBaseUrl,
@@ -215,7 +216,7 @@ reqToReflexRequest reqMeth reqHost req =
 
 
       xhrHeaders :: Dynamic t (Either Text [(Text, Text)])
-      xhrHeaders = (fmap sequence . sequence . fmap f . headers) req
+      xhrHeaders = (fmap sequence . mapM f . headers) req
         where
           f (headerName, dynam) = fmap (headerName,) <$> dynam
 
@@ -322,10 +323,11 @@ performSomeRequestsAsync'
     -> Event t (Performable m (f (Either Text (XhrRequest b)))) -> m (Event t (f (Either Text XhrResponse)))
 performSomeRequestsAsync' opts newXhr req = performEventAsync . ffor req $ \hrs cb -> do
   rs <- hrs
+  ctx <- askJSM
   resps <- forM rs $ \case
       Left e -> liftIO . newMVar . Left $ e
       Right r' -> do
-          r'' <- liftJSM $ optsRequestFixup opts r'
+          r'' <- (`runJSM` ctx) $ optsRequestFixup opts r'
           resp <- liftIO newEmptyMVar
           _ <- newXhr r'' $ liftIO . putMVar resp . Right
           return resp

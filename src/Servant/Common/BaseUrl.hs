@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
 {-# LANGUAGE ViewPatterns        #-}
+{-# LANGUAGE LambdaCase #-}
 module Servant.Common.BaseUrl (
   -- * types
     BaseUrl (..)
@@ -24,11 +25,28 @@ import           Control.Monad (join)
 import           Control.Monad.Fix (MonadFix)
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           GHC.Generics
+import           GHC.Generics ( Generic )
 import           Language.Javascript.JSaddle.Monad (MonadJSM)
 import           Reflex
+                  ( Reflex(updated, Dynamic),
+                    TriggerEvent,
+                    PerformEvent(Performable),
+                    PostBuild,
+                    MonadHold(holdDyn),
+                    constDyn,
+                    ffor,
+                    fmapMaybe )
 import           Reflex.Dom.Core
-import           Text.Read
+                  ( DomBuilder(DomBuilderSpace, inputElement),
+                    GhcjsDomSpace,
+                    def,
+                    (=:),
+                    elClass,
+                    text,
+                    widgetHold,
+                    dropdown,
+                    HasValue(value) )
+import           Text.Read ( readMaybe )
 
 
 type SupportsServantReflex t m = (Reflex t, TriggerEvent t m, PerformEvent t m, MonadJSM (Performable m))
@@ -76,7 +94,7 @@ baseUrlWidget :: forall t m .(SupportsServantReflex t m,
               => m (Dynamic t BaseUrl)
 baseUrlWidget = elClass "div" "base-url" $ do
   urlWidget <- dropdown (0 :: Int) (constDyn $ 0 =: "BasePath" <> 1 =: "BaseUrlFull") def
-  let bUrlWidget = ffor (value urlWidget) $ \i -> case i of
+  let bUrlWidget = ffor (value urlWidget) $ \case
         0 -> pathWidget
         1 -> fullUrlWidget
         _ -> error "Surprising value"
