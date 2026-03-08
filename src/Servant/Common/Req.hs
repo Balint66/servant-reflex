@@ -2,8 +2,8 @@
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
-{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
@@ -18,7 +18,6 @@ import           Control.Applicative     (liftA2, liftA3)
 #endif
 import           Control.Arrow              ((&&&))
 import           Control.Concurrent
-import           Control.Monad              (join)
 import           Control.Monad.IO.Class     (MonadIO, liftIO)
 import           Data.Bifunctor             (first)
 import qualified Data.ByteString.Builder    as Builder
@@ -46,7 +45,7 @@ import           Servant.API.BasicAuth
 -- | The result of a request event
 data ReqResult tag a
     = ResponseSuccess tag a XhrResponse
-      -- ^ The succesfully decoded response from a request tagged with 'tag'
+      -- ^ The successfully decoded response from a request tagged with 'tag'
     | ResponseFailure tag Text XhrResponse
       -- ^ The failure response, which may have failed decoding or had
       --   a non-successful response code
@@ -54,9 +53,9 @@ data ReqResult tag a
       -- ^ A failure to construct the request tagged with 'tag' at trigger time
   deriving (Functor)
 
-data ClientOptions = ClientOptions
+newtype ClientOptions = ClientOptions
     { optsRequestFixup :: forall a. Show a => XhrRequest a -> JSM (XhrRequest a)
-      -- ^ Aribtrarily modify requests just before they are sent.
+      -- ^ Arbitrarily modify requests just before they are sent.
       -- Warning: This escape hatch opens the possibility for your
       -- requests to diverge from what the server expects, when the
       -- server is also derived from a servant API
@@ -204,7 +203,7 @@ reqToReflexRequest reqMeth reqHost req =
 
       queryPartStrings :: [Dynamic t (Maybe (Either Text Text))]
       queryPartStrings = map queryPartString (qParams req)
-      queryPartStrings' = fmap (sequence . catMaybes) $ sequence queryPartStrings :: Dynamic t (Either Text [Text])
+      queryPartStrings' = sequence . catMaybes <$> sequence queryPartStrings :: Dynamic t (Either Text [Text])
       queryString :: Dynamic t (Either Text Text) =
         ffor queryPartStrings' $ \qs -> fmap (T.intercalate "&") qs
       xhrUrl =  (liftA3 . liftA3) (\a p q -> a </> if T.null q then p else p <> "?" <> q)
@@ -218,11 +217,10 @@ reqToReflexRequest reqMeth reqHost req =
       xhrHeaders :: Dynamic t (Either Text [(Text, Text)])
       xhrHeaders = (fmap sequence . sequence . fmap f . headers) req
         where
-          f = \(headerName, dynam) ->
-                fmap (fmap (\rightVal -> (headerName, rightVal))) dynam
+          f (headerName, dynam) = fmap (headerName,) <$> dynam
 
       mkConfigBody :: Either Text [(Text,Text)]
-                   -> (Either Text (BL.ByteString, Text))
+                   -> Either Text (BL.ByteString, Text)
                    -> Either Text (XhrRequestConfig XhrPayload)
       mkConfigBody ehs rb = case (ehs, rb) of
                   (_, Left e)                     -> Left e
@@ -266,7 +264,7 @@ reqToReflexRequest reqMeth reqHost req =
         Nothing -> xhr
         Just auth -> liftA2 mkAuth auth xhr
 
-      xhrReq = (liftA2 . liftA2) (\p opt -> XhrRequest reqMeth p opt) xhrUrl (addAuth xhrOpts)
+      xhrReq = (liftA2 . liftA2) (XhrRequest reqMeth) xhrUrl (addAuth xhrOpts)
 
   in xhrReq
 
@@ -285,8 +283,8 @@ performRequests :: forall t m f tag.(SupportsServantReflex t m, Traversable f)
                 -> m (Event t (tag, f (Either Text XhrResponse)))
 performRequests reqMeth rs reqHost opts trigger = do
   let xhrReqs =
-          join $ (\(fxhr :: f (Req t)) -> sequence $
-                     reqToReflexRequest reqMeth reqHost <$> fxhr) <$> rs
+          rs >>= (\(fxhr :: f (Req t)) -> mapM
+                     (reqToReflexRequest reqMeth reqHost) fxhr) 
 
       -- xhrReqs = fmap snd <$> xhrReqsAndDebugs
       reqs    = attachPromptlyDynWith
@@ -322,15 +320,13 @@ performSomeRequestsAsync'
     => ClientOptions
     -> (XhrRequest b -> (XhrResponse -> JSM ()) -> Performable m XMLHttpRequest)
     -> Event t (Performable m (f (Either Text (XhrRequest b)))) -> m (Event t (f (Either Text XhrResponse)))
-performSomeRequestsAsync' opts newXhr req = performEventAsync $ ffor req $ \hrs cb -> do
+performSomeRequestsAsync' opts newXhr req = performEventAsync . ffor req $ \hrs cb -> do
   rs <- hrs
-  resps <- forM rs $ \r -> case r of
-      Left e -> do
-          resp <- liftIO $ newMVar (Left e)
-          return resp
+  resps <- forM rs $ \case
+      Left e -> liftIO . newMVar . Left $ e
       Right r' -> do
+          r'' <- liftJSM $ optsRequestFixup opts r'
           resp <- liftIO newEmptyMVar
-          r'' <- liftJSM $ (optsRequestFixup opts) r'
           _ <- newXhr r'' $ liftIO . putMVar resp . Right
           return resp
   _ <- liftIO $ forkIO $ cb =<< forM resps takeMVar
@@ -361,7 +357,7 @@ performRequestsCT ct reqMeth reqs reqHost opts trigger = do
                      BL.fromStrict x
       decodeResp _ = Left "No body"
   return $ fmap
-      (\(t,rs) -> ffor rs $ \r -> case r of
+      (\(t,rs) -> ffor rs $ \case
               Left e  -> RequestFailure t e
               Right g -> evalResponse (decodeResp . _xhrResponse_response) (t,g)
       )
@@ -380,7 +376,7 @@ performRequestsNoBody
 performRequestsNoBody reqMeth reqs reqHost opts trigger = do
   resps <- performRequests reqMeth reqs reqHost opts trigger
   let decodeResp = const $ Right NoContent
-  return $ ffor resps $ \(tag,rs) -> ffor rs $ \r -> case r of
+  return $ ffor resps $ \(tag,rs) -> ffor rs $ \case
       Left e  -> RequestFailure tag e
       Right g -> evalResponse decodeResp (tag,g)
 
