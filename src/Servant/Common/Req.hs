@@ -44,6 +44,7 @@ import GHC.IORef (newIORef, readIORef, atomicModifyIORef', writeIORef)
 import Control.Monad (when)
 import Data.Foldable (forM_, Foldable (toList))
 import Data.Functor (void)
+import Control.Concurrent (forkIO)
 
 ------------------------------------------------------------------------------
 -- | The result of a request event
@@ -352,7 +353,37 @@ performSomeRequestsAsync'
   => ClientOptions -> (XhrRequest b -> (XhrResponse -> JSM ()) -> Performable m XMLHttpRequest) -- ^ newXhr
   -> Event t (Performable m (f (Either Text (XhrRequest b))))
   -> m (Event t (f (Either Text XhrResponse)))
-performSomeRequestsAsync' opts newXhr reqP = do
+performSomeRequestsAsync' opts newXhr reqP = performEventAsync . ffor reqP $ \hrs cb -> do
+  rs' <- hrs
+  ctx <- askJSM
+  completedRef <- liftIO $ newIORef (0 :: Integer)
+  rs :: f (IORef (Maybe (Either Text XhrResponse)), Either Text (XhrRequest b)) <-
+    liftIO $ for rs' (\ i -> (, i) <$> newIORef Nothing)
+  let
+    n :: Integer
+    n = foldr (const (+1)) 0 rs
+    finalize :: IO ()
+    finalize = do
+        outF <- for rs $ \(cell, _) -> do
+          mx <- readIORef cell
+          case mx of
+            Just x  -> pure x
+            Nothing -> error "performSomeRequestsAsyncMerged: invariant violated (missing element)"
+        cb outF
+    markDone :: IO ()
+    markDone = do
+      c' <- atomicModifyIORef' completedRef (\c -> let d = c + 1 in (d, d))
+      when (c' == n) finalize
+  forM_ rs $ \case
+    (cell, Left err) -> liftIO $ do
+      writeIORef cell (Just (Left err))
+      markDone
+    (cell, Right req') -> do
+      req <- optsRequestFixup opts req' `runJSM` ctx
+      void $ newXhr req $ \resp -> liftIO $ do
+        writeIORef cell (Just (Right resp))
+        markDone
+{-
   -- First, run the Performable actions to get a plain Event of requests
   reqE :: Event t (f (Either Text (XhrRequest b))) <- performEvent reqP
 
@@ -394,7 +425,7 @@ performSomeRequestsAsync' opts newXhr reqP = do
         void $ newXhr r $ \resp -> liftIO $ do
                 writeIORef cell (Just (Right resp))
                 markDone
-
+-}
 
 
 type XhrPayload = ByteString
