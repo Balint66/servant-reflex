@@ -1,6 +1,8 @@
 0.4.0
 -----
 
+ - Add `HasClient` / `HasClientMulti` instances for `NoContentVerb`
+   (servant >= 0.17; covers `DeleteNoContent`, `PostNoContent`, etc.)
  - Require the specific reflex-dom-core >= 0.7 && < 0.8.
 
 0.3.5

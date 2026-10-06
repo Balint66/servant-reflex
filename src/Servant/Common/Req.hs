@@ -232,7 +232,7 @@ reqToReflexRequest reqMeth reqHost req =
                   (Left e, _)                     -> Left e
                   (Right hs, Right (bBytes, bCT)) ->
                     Right $ XhrRequestConfig
-                      { _xhrRequestConfig_sendData = bytesToPayload bBytes
+                      { _xhrRequestConfig_sendData = TE.decodeUtf8 $ BL.toStrict bBytes
                       , _xhrRequestConfig_headers  =
                         Map.insert "Content-Type" bCT (Map.fromList hs)
                       , _xhrRequestConfig_user = Nothing
@@ -428,10 +428,7 @@ performSomeRequestsAsync' opts newXhr reqP = performEventAsync . ffor reqP $ \hr
 -}
 
 
-type XhrPayload = ByteString
-bytesToPayload :: BL.ByteString -> XhrPayload
-bytesToPayload = BL.toStrict
-
+type XhrPayload = Text
 
 performRequestsCT
     :: (SupportsServantReflex t m,

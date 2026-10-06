@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE InstanceSigs          #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE PolyKinds             #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
@@ -62,6 +63,9 @@ import           Servant.API             ((:<|>) (..), (:>), BasicAuth,
                                           RemoteHost, ReqBody,
                                           ToHttpApiData (..), Vault, Verb,
                                           contentType)
+#if MIN_VERSION_servant(0,17,0)
+import           Servant.API             (NoContentVerb)
+#endif
 import           Servant.API.Capture     (CaptureAll)
 import           Servant.API.Description (Summary)
 
@@ -227,6 +231,19 @@ instance {-# OVERLAPPING #-}
     wrap =<< performRequestsNoBody method req baseurl opts val
       where method = E.decodeUtf8 $ reflectMethod (Proxy :: Proxy method)
 
+#if MIN_VERSION_servant(0,17,0)
+------------------------------------------------------------------------------
+-- -- NoContentVerb (servant >= 0.17) --
+instance
+  (ReflectMethod method, SupportsServantReflex t m, Traversable f) =>
+  HasClientMulti t m (NoContentVerb method) f tag where
+  type ClientMulti t m (NoContentVerb method) f tag =
+    Event t tag -> m (Event t (f (ReqResult tag NoContent)))
+  clientWithRouteMulti Proxy _ _ _ req baseurl opts =
+    performRequestsNoBody method req baseurl opts
+      where method = E.decodeUtf8 $ reflectMethod (Proxy :: Proxy method)
+#endif
+
 
 ------------------------------------------------------------------------------
 -- HEADERS Verb (Content) --
@@ -374,6 +391,19 @@ instance (KnownSymbol sym,
 
   -- if mparam = Nothing, we don't add it to the query string
   -- TODO: Check the above comment
+  clientWithRouteAndResultHandlerMulti :: (KnownSymbol sym, ToHttpApiData a,
+    HasClientMulti t m sublayout f tag, Reflex t, Applicative f) =>
+    Proxy (QueryParam sym a :> sublayout)
+    -> Proxy m
+    -> Proxy f
+    -> Proxy tag
+    -> Dynamic t (f (Req t))
+    -> Dynamic t BaseUrl
+    -> ClientOptions
+    -> (forall a1.
+      Event t (f (ReqResult tag a1))
+      -> m (Event t (f (ReqResult tag a1))))
+    -> ClientMulti t m (QueryParam sym a :> sublayout) f tag
   clientWithRouteAndResultHandlerMulti _ q f tag reqs baseurl opts wrap mparams =
     clientWithRouteAndResultHandlerMulti (Proxy :: Proxy sublayout) q f tag
       reqs' baseurl opts wrap
